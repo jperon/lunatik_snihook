@@ -1,5 +1,5 @@
 import concat from table
-import ntoh16 from require"linux"
+import ntoh16, ntoh32 from require"linux"
 
 DEBUG = false
 dbg = (...) -> print ... if DEBUG
@@ -32,6 +32,9 @@ Packet = subclass Object, {
     obj.off or= 0
     Object.new @, obj
 
+  bit: (offset, n = 0) =>
+    (@skb\getbyte(@off+offset) >> n) % 2
+
   nibble: (offset, half = 0) =>
     b = @skb\getbyte @off+offset
     half == 0 and b >> 4 or b & 0xf
@@ -50,6 +53,13 @@ Packet = subclass Object, {
     else
       ntoh16 @skb\getuint16 @off+offset
 
+  long: (offset) =>
+    if DEBUG
+      ok, ret = pcall @skb.getuint32, @skb, @off+offset
+      ntoh32(ret) if ok else print"ERR: short, #{ret}, #{@off}, #{offset}, #{#@skb}"
+    else
+      ntoh32 @skb\getuint32 @off+offset
+
   str: (offset=0, length=#@skb-@off) =>
     if DEBUG
       ok, ret = pcall @skb.getstring, @skb, @off+offset, length
@@ -65,7 +75,17 @@ Packet = subclass Object, {
 
 IP = subclass Packet, {
   __name: "IP"
+  
   _get_version: => @nibble 0
+  
+  protocols: {
+    TCP:    0x06
+    UDP:    0x11
+    GRE:    0x2F
+    ESP:    0x32
+    ICMPv6: 0x3A
+    OSPF:   0x59
+  }
 }
 
 
@@ -75,6 +95,8 @@ IP4 = subclass IP, {
   get_ip_at: (off) => concat [ "%d"\format(@byte i) for i = off, off+3 ], "."
 
   _get_length: => @short 2
+
+  _get_protocol: => @byte 9
 
   _get_src: => @get_ip_at 12
 
@@ -91,6 +113,10 @@ IP6 = subclass IP, {
 
   _get_length: => @data_off + @short 4
 
+  _get_next_header: => @byte 6
+
+  _get_protocol: => @next_header
+
   _get_src: => @get_ip_at 8
 
   _get_dst: => @get_ip_at 24
@@ -101,14 +127,43 @@ IP6 = subclass IP, {
 
 auto_ip = =>
   version = IP(skb: @).version
-  _ip = version == 4 and IP4 or version == 6 and IP6
-  _ip skb: @
+  switch version
+    when 4
+      IP4 skb: @
+    when 6
+      IP6 skb: @
 
 
 TCP = subclass Packet, {
   __name: "TCP"
   
+  _get_sport: => @short 0
+  
+  _get_dport: => @short 2
+
+  _get_sequence_number: => @long 4
+
+  _get_acknowledgment_number: => @long 8
+
   _get_data_off: => 4 * @nibble 12
+
+  _get_URG: => @bit 13, 2
+
+  _get_ACK: => @bit 13, 3
+  
+  _get_PSH: => @bit 13, 4
+
+  _get_RST: => @bit 13, 5
+
+  _get_SYN: => @bit 13, 6
+
+  _get_FIN: => @bit 13, 7
+
+  _get_window: => @short 14
+
+  _get_checksum: => @short 16
+
+  _get_urgent_pointer: => @short 18
 }
 
 

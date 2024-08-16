@@ -1,7 +1,10 @@
 local concat
 concat = table.concat
-local ntoh16
-ntoh16 = require("linux").ntoh16
+local ntoh16, ntoh32
+do
+  local _obj_0 = require("linux")
+  ntoh16, ntoh32 = _obj_0.ntoh16, _obj_0.ntoh32
+end
 local DEBUG = false
 local dbg
 dbg = function(...)
@@ -43,6 +46,12 @@ local Packet = subclass(Object, {
     obj.off = obj.off or 0
     return Object.new(self, obj)
   end,
+  bit = function(self, offset, n)
+    if n == nil then
+      n = 0
+    end
+    return (self.skb:getbyte(self.off + offset) >> n) % 2
+  end,
   nibble = function(self, offset, half)
     if half == nil then
       half = 0
@@ -72,6 +81,18 @@ local Packet = subclass(Object, {
       end
     else
       return ntoh16(self.skb:getuint16(self.off + offset))
+    end
+  end,
+  long = function(self, offset)
+    if DEBUG then
+      local ok, ret = pcall(self.skb.getuint32, self.skb, self.off + offset)
+      if ok then
+        return ntoh32(ret)
+      else
+        return print("ERR: short, " .. tostring(ret) .. ", " .. tostring(self.off) .. ", " .. tostring(offset) .. ", " .. tostring(#self.skb))
+      end
+    else
+      return ntoh32(self.skb:getuint32(self.off + offset))
     end
   end,
   str = function(self, offset, length)
@@ -106,7 +127,15 @@ local IP = subclass(Packet, {
   __name = "IP",
   _get_version = function(self)
     return self:nibble(0)
-  end
+  end,
+  protocols = {
+    TCP = 0x06,
+    UDP = 0x11,
+    GRE = 0x2F,
+    ESP = 0x32,
+    ICMPv6 = 0x3A,
+    OSPF = 0x59
+  }
 })
 local IP4 = subclass(IP, {
   __name = "IP4",
@@ -123,6 +152,9 @@ local IP4 = subclass(IP, {
   end,
   _get_length = function(self)
     return self:short(2)
+  end,
+  _get_protocol = function(self)
+    return self:byte(9)
   end,
   _get_src = function(self)
     return self:get_ip_at(12)
@@ -150,6 +182,12 @@ local IP6 = subclass(IP, {
   _get_length = function(self)
     return self.data_off + self:short(4)
   end,
+  _get_next_header = function(self)
+    return self:byte(6)
+  end,
+  _get_protocol = function(self)
+    return self.next_header
+  end,
   _get_src = function(self)
     return self:get_ip_at(8)
   end,
@@ -165,15 +203,60 @@ auto_ip = function(self)
   local version = IP({
     skb = self
   }).version
-  local _ip = version == 4 and IP4 or version == 6 and IP6
-  return _ip({
-    skb = self
-  })
+  local _exp_0 = version
+  if 4 == _exp_0 then
+    return IP4({
+      skb = self
+    })
+  elseif 6 == _exp_0 then
+    return IP6({
+      skb = self
+    })
+  end
 end
 local TCP = subclass(Packet, {
   __name = "TCP",
+  _get_sport = function(self)
+    return self:short(0)
+  end,
+  _get_dport = function(self)
+    return self:short(2)
+  end,
+  _get_sequence_number = function(self)
+    return self:long(4)
+  end,
+  _get_acknowledgment_number = function(self)
+    return self:long(8)
+  end,
   _get_data_off = function(self)
     return 4 * self:nibble(12)
+  end,
+  _get_URG = function(self)
+    return self:bit(13, 2)
+  end,
+  _get_ACK = function(self)
+    return self:bit(13, 3)
+  end,
+  _get_PSH = function(self)
+    return self:bit(13, 4)
+  end,
+  _get_RST = function(self)
+    return self:bit(13, 5)
+  end,
+  _get_SYN = function(self)
+    return self:bit(13, 6)
+  end,
+  _get_FIN = function(self)
+    return self:bit(13, 7)
+  end,
+  _get_window = function(self)
+    return self:short(14)
+  end,
+  _get_checksum = function(self)
+    return self:short(16)
+  end,
+  _get_urgent_pointer = function(self)
+    return self:short(18)
   end
 })
 local TLS = subclass(Packet, {
