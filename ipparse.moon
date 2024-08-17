@@ -1,8 +1,9 @@
 import concat from table
+import min from math
+import wrap, yield from coroutine
 import ntoh16, ntoh32 from require"linux"
-
-DEBUG = false
-dbg = (...) -> print ... if DEBUG
+log = require"snihook.log" 4, "ipparse"
+import dbg, info, error from log
 
 
 Object = {
@@ -11,13 +12,13 @@ Object = {
     cls = @ ~= obj and @ or nil
     setmetatable obj, {
       __index: (k) =>
-        if cls
-          if getter = cls["_get_#{k}"]
-            @k = getter @
-            dbg "#{@__name} #{k}: #{@k}"
-            @k
-          else
-            cls[k]
+        if getter = rawget(@, "_get_#{k}") or cls and cls["_get_#{k}"]
+          dbg "get #{@__name} #{k}"
+          @k = getter @
+          dbg "#{@k}"
+          @k
+        else if cls
+          cls[k]
       __call: (...) => obj\new ...
     }
 }
@@ -32,42 +33,50 @@ Packet = subclass Object, {
     obj.off or= 0
     Object.new @, obj
 
-  bit: (offset, n = 0) =>
-    (@skb\getbyte(@off+offset) >> n) % 2
+  bit: (offset, n = 1) =>
+    if log.level == 7
+      ok, ret = pcall @skb.getbyte, @skb, @off+offset
+      ((ret >> (8-n)) & 1) if ok else error @__name, "bit", ret, "#{@off} #{offset} #{#@skb}"
+    else
+      (@skb\getbyte(@off+offset) >> n) & 1
 
   nibble: (offset, half = 0) =>
-    b = @skb\getbyte @off+offset
-    half == 0 and b >> 4 or b & 0xf
+    if log.level == 7
+      ok, ret = pcall @skb.getbyte, @skb, @off+offset
+      (half == 0 and ret >> 4 or ret & 0xf) if ok else error @__name, "nibble", "#{@off} #{offset} #{#@skb}"
+    else
+      b = @skb\getbyte @off+offset
+      half == 0 and b >> 4 or b & 0xf
 
   byte: (offset) =>
-    if DEBUG
+    if log.level == 7
       ok, ret = pcall @skb.getbyte, @skb, @off+offset
-      ret if ok else print"ERR: byte, #{ret}, #{@off}, #{offset}, #{#@skb}"
+      ret if ok else error @__name, "byte", ret, "#{@off} #{offset} #{#@skb}"
     else
       @skb\getbyte @off+offset
 
   short: (offset) =>
-    if DEBUG
+    if log.level == 7
       ok, ret = pcall @skb.getuint16, @skb, @off+offset
-      ntoh16(ret) if ok else print"ERR: short, #{ret}, #{@off}, #{offset}, #{#@skb}"
+      ntoh16(ret) if ok else error @__name, "short", ret, "#{@off} #{offset} #{#@skb}"
     else
       ntoh16 @skb\getuint16 @off+offset
 
   long: (offset) =>
-    if DEBUG
+    if log.level == 7
       ok, ret = pcall @skb.getuint32, @skb, @off+offset
-      ntoh32(ret) if ok else print"ERR: short, #{ret}, #{@off}, #{offset}, #{#@skb}"
+      ntoh32(ret) if ok else error @__name, "long", ret, "#{@off} #{offset} #{#@skb}"
     else
       ntoh32 @skb\getuint32 @off+offset
 
   str: (offset=0, length=#@skb-@off) =>
-    if DEBUG
+    if log.level == 7
       ok, ret = pcall @skb.getstring, @skb, @off+offset, length
-      ret if ok else print"ERR: str, #{ret}, #{@off}, #{offset}, #{length}, #{#@skb}"
+      ret if ok else error @__name, "str", ret, "#{@off} #{offset} #{length} #{#@skb}"
     else
       @skb\getstring @off+offset, length
 
-  is_empty: => @off == #@skb
+  is_empty: => @off >= #@skb
 
   _get_data: => skb: @skb, off: @off + @data_off
 }
@@ -126,8 +135,8 @@ IP6 = subclass IP, {
 
 
 auto_ip = =>
-  version = IP(skb: @).version
-  switch version
+  ip = IP skb: @
+  switch ip.version
     when 4
       IP4 skb: @
     when 6
@@ -147,17 +156,17 @@ TCP = subclass Packet, {
 
   _get_data_off: => 4 * @nibble 12
 
-  _get_URG: => @bit 13, 2
+  _get_URG: => @bit 13, 3
 
-  _get_ACK: => @bit 13, 3
+  _get_ACK: => @bit 13, 4
   
-  _get_PSH: => @bit 13, 4
+  _get_PSH: => @bit 13, 5
 
-  _get_RST: => @bit 13, 5
+  _get_RST: => @bit 13, 6
 
-  _get_SYN: => @bit 13, 6
+  _get_SYN: => @bit 13, 7
 
-  _get_FIN: => @bit 13, 7
+  _get_FIN: => @bit 13, 8
 
   _get_window: => @short 14
 
@@ -241,15 +250,15 @@ TLSHandshake = subclass Packet, {
   
   _get_extensions_offset: => @compressions_offset + 1 + @compressions_length
   
-  _get_extensions: =>
-    extensions = {}
+  _get_extensions: => [ extension for extension in @iter_extensions! ]
+
+  iter_extensions: => wrap ->
     offset = @extensions_offset + 2
-    max_offset = offset + @short @extensions_offset
+    max_offset = min #@skb-@off-6, offset + @short @extensions_offset
     while offset < max_offset
       extension = TLS_extensions[@short offset] skb: @skb, off: @off + offset
-      extensions[#extensions+1] = extension
+      yield extension
       offset += extension.length
-    extensions
 
   types: {
     hello: 0x01
@@ -258,10 +267,9 @@ TLSHandshake = subclass Packet, {
 
 
 {
-  :DEBUG, :dbg,
+  :log,
   :Object, :subclass,
   :Packet, :IP, :IP4, :IP6, :auto_ip,
   :TCP,
   :TLS, :TLSExtension, :TLSHandshake, :TLS_extensions
 }
-

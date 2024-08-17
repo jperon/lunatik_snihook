@@ -21,22 +21,24 @@ do
 end
 local IRWUSR = IRUSR | IWUSR
 local ipparse = require("snihook.ipparse")
+ipparse.log.level = 7
 local auto_ip, IP, TCP, TLS, TLSHandshake, TLSExtension
 auto_ip, IP, TCP, TLS, TLSHandshake, TLSExtension = ipparse.auto_ip, ipparse.IP, ipparse.TCP, ipparse.TLS, ipparse.TLSHandshake, ipparse.TLSExtension
-local TCP_proto = IP.protocols.TCP
+local tcp_proto = IP.protocols.TCP
 local handshake
 handshake = TLS.types.handshake
 local hello
 hello = TLSHandshake.types.hello
 local server_name
 server_name = TLSExtension.types.server_name
+local info
+info = require("snihook.log")(6, "snihook").info
 local whitelist = { }
 local nop
 nop = function() end
 local get_first
 get_first = function(self, fn)
-  for _index_0 = 1, #self do
-    local v = self[_index_0]
+  for v in self do
     if fn(v) then
       return v
     end
@@ -71,7 +73,7 @@ device.new({
 local hook
 hook = function(self)
   local ip = auto_ip(self)
-  if not ip or ip:is_empty() or ip.protocol ~= TCP_proto then
+  if not ip or ip:is_empty() or ip.protocol ~= tcp_proto then
     return CONTINUE
   end
   local tcp = TCP(ip.data)
@@ -83,17 +85,17 @@ hook = function(self)
     return CONTINUE
   end
   local hshake = TLSHandshake(tls.data)
-  if hshake.type ~= hello then
+  if hshake:is_empty() or hshake.type ~= hello then
     return CONTINUE
   end
   do
-    local sni = get_first(hshake.extensions, function(self)
+    local sni = get_first(hshake:iter_extensions(), function(self)
       return self.type == server_name
     end)
     if sni then
       sni = sni.server_name
       if whitelist[sni] then
-        print(tostring(sni) .. " allowed.")
+        info(tostring(ip.src) .. " -> " .. tostring(sni) .. " allowed.")
         return CONTINUE
       end
       local sni_parts
@@ -118,11 +120,11 @@ hook = function(self)
           return _accum_0
         end)(), ".")
         if whitelist[domain] then
-          print(tostring(sni) .. " allowed as a subdomain of " .. tostring(domain) .. ".")
+          info(tostring(ip.src) .. " -> " .. tostring(sni) .. " allowed as a subdomain of " .. tostring(domain) .. ".")
           return CONTINUE
         end
       end
-      print(tostring(sni) .. " BLOCKED.")
+      info(tostring(ip.src) .. " -> " .. tostring(sni) .. " BLOCKED.")
       return DROP
     end
   end

@@ -1,31 +1,35 @@
 local concat
 concat = table.concat
+local min
+min = math.min
+local wrap, yield
+do
+  local _obj_0 = coroutine
+  wrap, yield = _obj_0.wrap, _obj_0.yield
+end
 local ntoh16, ntoh32
 do
   local _obj_0 = require("linux")
   ntoh16, ntoh32 = _obj_0.ntoh16, _obj_0.ntoh32
 end
-local DEBUG = false
-local dbg
-dbg = function(...)
-  if DEBUG then
-    return print(...)
-  end
-end
+local log = require("snihook.log")(4, "ipparse")
+local dbg, info, error
+dbg, info, error = log.dbg, log.info, log.error
 local Object = {
   __name = "Object",
   new = function(self, obj)
     local cls = self ~= obj and self or nil
     return setmetatable(obj, {
       __index = function(self, k)
-        if cls then
-          do
-            local getter = cls["_get_" .. tostring(k)]
-            if getter then
-              self.k = getter(self)
-              dbg(tostring(self.__name) .. " " .. tostring(k) .. ": " .. tostring(self.k))
-              return self.k
-            else
+        do
+          local getter = rawget(self, "_get_" .. tostring(k)) or cls and cls["_get_" .. tostring(k)]
+          if getter then
+            dbg("get " .. tostring(self.__name) .. " " .. tostring(k))
+            self.k = getter(self)
+            dbg(tostring(self.k))
+            return self.k
+          else
+            if cls then
               return cls[k]
             end
           end
@@ -48,48 +52,66 @@ local Packet = subclass(Object, {
   end,
   bit = function(self, offset, n)
     if n == nil then
-      n = 0
+      n = 1
     end
-    return (self.skb:getbyte(self.off + offset) >> n) % 2
+    if log.level == 7 then
+      local ok, ret = pcall(self.skb.getbyte, self.skb, self.off + offset)
+      if ok then
+        return ((ret >> (8 - n)) & 1)
+      else
+        return error(self.__name, "bit", ret, tostring(self.off) .. " " .. tostring(offset) .. " " .. tostring(#self.skb))
+      end
+    else
+      return (self.skb:getbyte(self.off + offset) >> n) & 1
+    end
   end,
   nibble = function(self, offset, half)
     if half == nil then
       half = 0
     end
-    local b = self.skb:getbyte(self.off + offset)
-    return half == 0 and b >> 4 or b & 0xf
+    if log.level == 7 then
+      local ok, ret = pcall(self.skb.getbyte, self.skb, self.off + offset)
+      if ok then
+        return (half == 0 and ret >> 4 or ret & 0xf)
+      else
+        return error(self.__name, "nibble", tostring(self.off) .. " " .. tostring(offset) .. " " .. tostring(#self.skb))
+      end
+    else
+      local b = self.skb:getbyte(self.off + offset)
+      return half == 0 and b >> 4 or b & 0xf
+    end
   end,
   byte = function(self, offset)
-    if DEBUG then
+    if log.level == 7 then
       local ok, ret = pcall(self.skb.getbyte, self.skb, self.off + offset)
       if ok then
         return ret
       else
-        return print("ERR: byte, " .. tostring(ret) .. ", " .. tostring(self.off) .. ", " .. tostring(offset) .. ", " .. tostring(#self.skb))
+        return error(self.__name, "byte", ret, tostring(self.off) .. " " .. tostring(offset) .. " " .. tostring(#self.skb))
       end
     else
       return self.skb:getbyte(self.off + offset)
     end
   end,
   short = function(self, offset)
-    if DEBUG then
+    if log.level == 7 then
       local ok, ret = pcall(self.skb.getuint16, self.skb, self.off + offset)
       if ok then
         return ntoh16(ret)
       else
-        return print("ERR: short, " .. tostring(ret) .. ", " .. tostring(self.off) .. ", " .. tostring(offset) .. ", " .. tostring(#self.skb))
+        return error(self.__name, "short", ret, tostring(self.off) .. " " .. tostring(offset) .. " " .. tostring(#self.skb))
       end
     else
       return ntoh16(self.skb:getuint16(self.off + offset))
     end
   end,
   long = function(self, offset)
-    if DEBUG then
+    if log.level == 7 then
       local ok, ret = pcall(self.skb.getuint32, self.skb, self.off + offset)
       if ok then
         return ntoh32(ret)
       else
-        return print("ERR: short, " .. tostring(ret) .. ", " .. tostring(self.off) .. ", " .. tostring(offset) .. ", " .. tostring(#self.skb))
+        return error(self.__name, "long", ret, tostring(self.off) .. " " .. tostring(offset) .. " " .. tostring(#self.skb))
       end
     else
       return ntoh32(self.skb:getuint32(self.off + offset))
@@ -102,19 +124,19 @@ local Packet = subclass(Object, {
     if length == nil then
       length = #self.skb - self.off
     end
-    if DEBUG then
+    if log.level == 7 then
       local ok, ret = pcall(self.skb.getstring, self.skb, self.off + offset, length)
       if ok then
         return ret
       else
-        return print("ERR: str, " .. tostring(ret) .. ", " .. tostring(self.off) .. ", " .. tostring(offset) .. ", " .. tostring(length) .. ", " .. tostring(#self.skb))
+        return error(self.__name, "str", ret, tostring(self.off) .. " " .. tostring(offset) .. " " .. tostring(length) .. " " .. tostring(#self.skb))
       end
     else
       return self.skb:getstring(self.off + offset, length)
     end
   end,
   is_empty = function(self)
-    return self.off == #self.skb
+    return self.off >= #self.skb
   end,
   _get_data = function(self)
     return {
@@ -200,10 +222,10 @@ local IP6 = subclass(IP, {
 })
 local auto_ip
 auto_ip = function(self)
-  local version = IP({
+  local ip = IP({
     skb = self
-  }).version
-  local _exp_0 = version
+  })
+  local _exp_0 = ip.version
   if 4 == _exp_0 then
     return IP4({
       skb = self
@@ -232,22 +254,22 @@ local TCP = subclass(Packet, {
     return 4 * self:nibble(12)
   end,
   _get_URG = function(self)
-    return self:bit(13, 2)
-  end,
-  _get_ACK = function(self)
     return self:bit(13, 3)
   end,
-  _get_PSH = function(self)
+  _get_ACK = function(self)
     return self:bit(13, 4)
   end,
-  _get_RST = function(self)
+  _get_PSH = function(self)
     return self:bit(13, 5)
   end,
-  _get_SYN = function(self)
+  _get_RST = function(self)
     return self:bit(13, 6)
   end,
-  _get_FIN = function(self)
+  _get_SYN = function(self)
     return self:bit(13, 7)
+  end,
+  _get_FIN = function(self)
+    return self:bit(13, 8)
   end,
   _get_window = function(self)
     return self:short(14)
@@ -363,26 +385,34 @@ local TLSHandshake = subclass(Packet, {
     return self.compressions_offset + 1 + self.compressions_length
   end,
   _get_extensions = function(self)
-    local extensions = { }
-    local offset = self.extensions_offset + 2
-    local max_offset = offset + self:short(self.extensions_offset)
-    while offset < max_offset do
-      local extension = TLS_extensions[self:short(offset)]({
-        skb = self.skb,
-        off = self.off + offset
-      })
-      extensions[#extensions + 1] = extension
-      offset = offset + extension.length
+    local _accum_0 = { }
+    local _len_0 = 1
+    for extension in self:iter_extensions() do
+      _accum_0[_len_0] = extension
+      _len_0 = _len_0 + 1
     end
-    return extensions
+    return _accum_0
+  end,
+  iter_extensions = function(self)
+    return wrap(function()
+      local offset = self.extensions_offset + 2
+      local max_offset = min(#self.skb - self.off - 6, offset + self:short(self.extensions_offset))
+      while offset < max_offset do
+        local extension = TLS_extensions[self:short(offset)]({
+          skb = self.skb,
+          off = self.off + offset
+        })
+        yield(extension)
+        offset = offset + extension.length
+      end
+    end)
   end,
   types = {
     hello = 0x01
   }
 })
 return {
-  DEBUG = DEBUG,
-  dbg = dbg,
+  log = log,
   Object = Object,
   subclass = subclass,
   Packet = Packet,

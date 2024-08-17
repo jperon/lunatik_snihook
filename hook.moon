@@ -25,16 +25,19 @@ import BRIDGE from nf.family
 import FORWARD from nf.bridge_hooks
 import FILTER_BRIDGED from nf.bridge_priority
 import CONTINUE, DROP from nf.action
+-- DROP = CONTINUE  -- Enable to debug without blocking traffic
 device = require"device"
 linux = require"linux"
 import IRUSR, IWUSR from linux.stat
 IRWUSR = IRUSR | IWUSR
 ipparse = require"snihook.ipparse"
+ipparse.log.level = 7
 import auto_ip, IP, TCP, TLS, TLSHandshake, TLSExtension from ipparse
-TCP_proto = IP.protocols.TCP
+tcp_proto = IP.protocols.TCP
 import handshake from TLS.types
 import hello from TLSHandshake.types
 import server_name from TLSExtension.types
+import info from require"snihook.log" 6, "snihook"
 
 whitelist = {}
 
@@ -42,8 +45,8 @@ whitelist = {}
 nop = ->  -- Do nothing
 
 
-get_first = (fn) =>  -- Returns first value of a table that matches the condition defined in function fn.
-  for v in *@
+get_first = (fn) =>  -- Returns first value of an iterator that matches the condition defined in function fn.
+  for v in @
     return v if fn v
 
 device.new{
@@ -61,25 +64,25 @@ device.new{
 
 hook = =>
   ip = auto_ip @
-  return CONTINUE if not ip or ip\is_empty! or ip.protocol ~= TCP_proto
+  return CONTINUE if not ip or ip\is_empty! or ip.protocol ~= tcp_proto
   tcp = TCP ip.data
   return CONTINUE if tcp\is_empty! or tcp.dport ~= 443
   tls = TLS tcp.data
   return CONTINUE if tls\is_empty! or tls.type ~= handshake
   hshake = TLSHandshake tls.data
-  return CONTINUE if hshake.type ~= hello
-  if sni = get_first hshake.extensions, => @type == server_name
+  return CONTINUE if hshake\is_empty! or hshake.type ~= hello
+  if sni = get_first hshake\iter_extensions!, => @type == server_name
     sni = sni.server_name
     if whitelist[sni]
-        print"#{sni} allowed."
+        info"#{ip.src} -> #{sni} allowed."
         return CONTINUE
     sni_parts = [ part for part in sni\gmatch"[^%.]+"]
     for i = 2, #sni_parts
       domain = concat [ part for part in *sni_parts[i,] ], "."
       if whitelist[domain]
-        print"#{sni} allowed as a subdomain of #{domain}."
+        info"#{ip.src} -> #{sni} allowed as a subdomain of #{domain}."
         return CONTINUE
-    print"#{sni} BLOCKED."
+    info"#{ip.src} -> #{sni} BLOCKED."
     return DROP
 
   CONTINUE
