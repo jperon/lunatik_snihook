@@ -1,26 +1,21 @@
-local concat, remove
-do
-  local _obj_0 = table
-  concat, remove = _obj_0.concat, _obj_0.remove
-end
-local time
-time = require("linux").time
-local nop
-nop = function() end
-return function(level, msg)
+local concat
+concat = table.concat
+local outbox
+outbox = require("mailbox").outbox
+return function(queue, level, msg)
+  if msg == nil then
+    msg = ""
+  end
   local self = {
     level = level,
     msg = msg
   }
-  local previous = { }
+  local _out = outbox(queue)
   local logger
-  logger = function(level, txt)
-    if self.level < level then
-      return nop
-    end
+  logger = function(lvl, txt)
     return function(...)
-      if not (self.level < level) then
-        msg = tostring(self.msg) .. " " .. tostring(txt) .. ": " .. concat((function(...)
+      if not (self.level < lvl) then
+        return _out:send(tostring(self.msg) .. " " .. tostring(txt) .. ": " .. concat((function(...)
           local _accum_0 = { }
           local _len_0 = 1
           local _list_0 = {
@@ -32,48 +27,7 @@ return function(level, msg)
             _len_0 = _len_0 + 1
           end
           return _accum_0
-        end)(...), "\t")
-        local t = time() / 1000000000
-        for i = 1, #previous do
-          local _continue_0 = false
-          repeat
-            local prev = previous[i]
-            if not prev then
-              _continue_0 = true
-              break
-            end
-            local _t, _n, _msg
-            _t, _n, _msg = prev[1], prev[2], prev[3]
-            if t - _t >= 10 then
-              if _n == 0 then
-                previous[_msg] = nil
-                remove(previous, i)
-              else
-                print(_n > 1 and tostring(_msg) .. " (" .. tostring(_n) .. "x)" or _msg)
-                prev[1], prev[2] = t, 0
-              end
-            end
-            _continue_0 = true
-          until true
-          if not _continue_0 then
-            break
-          end
-        end
-        do
-          local prev = previous[msg]
-          if prev then
-            prev[2] = prev[2] + 1
-          else
-            print(msg)
-            prev = {
-              t,
-              0,
-              msg
-            }
-            previous[msg] = prev
-            previous[#previous + 1] = prev
-          end
-        end
+        end)(...), "\t"))
       end
     end
   end

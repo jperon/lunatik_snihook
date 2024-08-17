@@ -12,10 +12,18 @@ Install [lunatik](https://github.com/luainkernel/lunatik):
 git clone https://github.com/luainkernel/lunatik
 git remote add gsoc2024 https://github.com/sheharyaar/lunatik
 cd lunatik
+LUNATIK_DIR=$PWD
 git checkout netfilter-hook
-sudo apt install lua5.4         # dependency (Debian / Ubuntu)
-make                            # builds modules
-sudo make install               # installs modules into /lib/modules/lua
+# dependencies (Debian / Ubuntu). `pahole` could need to be manually upgraded to higher version.
+sudo apt install lua5.4 pahole linux-source
+sudo cp /sys/kernel/btf/vmlinux /usr/lib/modules/`uname -r`/build/
+cd /tmp ; tar xaf /usr/src/linux-source-VERSION.tar.bz2  # replace VERSION by relevant value
+cd linux-source-VERSION/tools/bpf/resolve_btfids/        # idem
+sudo mkdir -p /usr/src/linux-headers-`uname -r`/tools/bpf/resolve_btfids/
+sudo cp resolve_btfids /usr/src/linux-headers-`uname -r`/tools/bpf/resolve_btfids/
+cd $LUNATIK_DIR
+make                             # builds modules
+sudo make install                # installs modules into /lib/modules/lua
 cd ..
 ```
 
@@ -35,6 +43,7 @@ sudo make install                                              # installs the ex
 sudo lunatik run snihook/hook                        # runs the Lua kernel script
 echo "add github.com" | sudo tee /dev/sni_whitelist  # opens access to https://github.com (and subdomains of github.com)
 echo "del github.com" | sudo tee /dev/sni_whitelist  # removes access to https://github.com (and subdomains not open otherwise)
-sudo lunatik stop snihook/hook                       # stops the Lua kernel script
+# stops the Lua kernel script
+sudo lunatik stop snihook/main; sudo lunatik stop snihook/hook; sudo lunatik stop snihook/logger
 ```
 
