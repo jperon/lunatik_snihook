@@ -2,13 +2,13 @@ local remove
 remove = table.remove
 local inbox
 inbox = require("mailbox").inbox
-local schedule, time
-do
-  local _obj_0 = require("linux")
-  schedule, time = _obj_0.schedule, _obj_0.time
-end
 local shouldstop
 shouldstop = require("thread").shouldstop
+local schedule, time, INTERRUPTIBLE
+do
+  local _obj_0 = require("linux")
+  schedule, time, INTERRUPTIBLE = _obj_0.schedule, _obj_0.time, _obj_0.task.INTERRUPTIBLE
+end
 return function(queue)
   local _in = inbox(queue)
   local previous = {
@@ -18,6 +18,9 @@ return function(queue)
     do
       local self = _in:receive()
       if self then
+        if self == "STOP\n" then
+          break
+        end
         local t = time() / 1000000000
         do
           local _t = previous[self]
@@ -30,9 +33,9 @@ return function(queue)
             previous[self] = t
           end
         end
-        schedule(1)
+        schedule(1, INTERRUPTIBLE)
       else
-        schedule(1000)
+        schedule(1000, INTERRUPTIBLE)
       end
     end
   end

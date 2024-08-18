@@ -44,6 +44,7 @@ sudo lunatik run snihook/hook                        # runs the Lua kernel scrip
 echo "add github.com" | sudo tee /dev/sni_whitelist  # opens access to https://github.com (and subdomains of github.com)
 echo "del github.com" | sudo tee /dev/sni_whitelist  # removes access to https://github.com (and subdomains not open otherwise)
 # stops the Lua kernel script
+echo "STOP" | sudo tee /dev/sni_whitelist            # temporary workaround for a bug that makes snihook/logger loop forever
 sudo lunatik stop snihook/main; sudo lunatik stop snihook/hook; sudo lunatik stop snihook/logger
 ```
 

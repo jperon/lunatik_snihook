@@ -46,12 +46,13 @@ run r, hook, msg.queue, log.queue
 rt[logger] = l
 rt[hook] = r
 
-
 nop = ->  -- Do nothing
 
 
 device.new{
   :name, mode: IRWUSR
   open: nop, release: nop, read: nop
-  write: (s) => msg\send s
+  write: (s) =>
+    log\send s if s == "STOP\n"
+    msg\send s
 }

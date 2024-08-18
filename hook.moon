@@ -65,4 +65,3 @@ get_first = (fn) =>  -- Returns first value of an iterator that matches the cond
     CONTINUE
 
   nf.register :hook, pf: BRIDGE, hooknum: FORWARD, priority: FILTER_BRIDGED
-

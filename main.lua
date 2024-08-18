@@ -45,6 +45,9 @@ return device.new({
   release = nop,
   read = nop,
   write = function(self, s)
+    if s == "STOP\n" then
+      log:send(s)
+    end
     return msg:send(s)
   end
 })
