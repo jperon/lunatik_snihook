@@ -21,9 +21,9 @@ hook   = "snihook/hook"    -- script that will register nftable hook(s)
 logger = "snihook/logger"  -- script that will handle logging
 name   = "sni_whitelist"   -- name of the device file (in /dev)
 
-import runtime, runtimes from require"lunatik"
+:runtime, :runtimes, stop: lstop = require"lunatik"
 require"rcu"  -- required for runtime
-import run from require"thread"
+:run, stop: tstop = require"thread"
 import outbox from require"mailbox"
 
 device = require"device"
@@ -39,12 +39,12 @@ log = outbox 100 * 1024
 rt = runtimes!
 for script in *{hook, logger}
   assert not rt[script], "Please stop #{script} before starting this script."
-l = runtime logger
-r = runtime hook, false
-run l, logger, log.queue
-run r, hook, msg.queue, log.queue
-rt[logger] = l
-rt[hook] = r
+logger_rt = runtime logger
+hook_rt = runtime hook, false
+logger_th = run logger_rt, logger, log.queue
+hook_th = run hook_rt, hook, msg.queue, log.queue
+rt[logger] = logger_rt
+rt[hook] = hook_rt
 
 nop = ->  -- Do nothing
 
@@ -53,6 +53,13 @@ device.new{
   :name, mode: IRWUSR
   open: nop, release: nop, read: nop
   write: (s) =>
-    log\send s if s == "STOP\n"
-    msg\send s
+    if s == "STOP\n"
+      msg\send s
+      log\send s
+      tstop logger_th
+      tstop hook_th
+      lstop hook_rt
+      lstop logger_rt
+    else
+      msg\send s
 }

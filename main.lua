@@ -1,14 +1,17 @@
 local hook = "snihook/hook"
 local logger = "snihook/logger"
 local name = "sni_whitelist"
-local runtime, runtimes
+local runtime, runtimes, lstop
 do
   local _obj_0 = require("lunatik")
-  runtime, runtimes = _obj_0.runtime, _obj_0.runtimes
+  runtime, runtimes, lstop = _obj_0.runtime, _obj_0.runtimes, _obj_0.stop
 end
 require("rcu")
-local run
-run = require("thread").run
+local run, tstop
+do
+  local _obj_0 = require("thread")
+  run, tstop = _obj_0.run, _obj_0.stop
+end
 local outbox
 outbox = require("mailbox").outbox
 local device = require("device")
@@ -30,12 +33,12 @@ for _index_0 = 1, #_list_0 do
   local script = _list_0[_index_0]
   assert(not rt[script], "Please stop " .. tostring(script) .. " before starting this script.")
 end
-local l = runtime(logger)
-local r = runtime(hook, false)
-run(l, logger, log.queue)
-run(r, hook, msg.queue, log.queue)
-rt[logger] = l
-rt[hook] = r
+local logger_rt = runtime(logger)
+local hook_rt = runtime(hook, false)
+local logger_th = run(logger_rt, logger, log.queue)
+local hook_th = run(hook_rt, hook, msg.queue, log.queue)
+rt[logger] = logger_rt
+rt[hook] = hook_rt
 local nop
 nop = function() end
 return device.new({
@@ -46,8 +49,14 @@ return device.new({
   read = nop,
   write = function(self, s)
     if s == "STOP\n" then
+      msg:send(s)
       log:send(s)
+      tstop(logger_th)
+      tstop(hook_th)
+      lstop(hook_rt)
+      return lstop(logger_rt)
+    else
+      return msg:send(s)
     end
-    return msg:send(s)
   end
 })
