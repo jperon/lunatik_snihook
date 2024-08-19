@@ -46,3 +46,5 @@ echo "del github.com" | sudo tee /dev/sni_whitelist  # removes access to https:/
 sudo lunatik stop snihook/main                       # stops the Lua kernel script
 ```
 
+Note: By default, unallowed domains will get logged (`journalctl -t kernel -g sniblock`), but not blocked.
+To effectively block them, set `activate = true` in `/lib/modules/lua/snihook/config.lua`.
