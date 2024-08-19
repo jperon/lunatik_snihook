@@ -3,7 +3,7 @@
 :wrap, :yield = coroutine
 
 :ntoh16, :ntoh32 = require"linux"
-:dbg, :error = require"snihook.log"
+log = require"snihook.log"
 
 
 Object = {
@@ -13,9 +13,9 @@ Object = {
     setmetatable obj, {
       __index: (k) =>
         if getter = rawget(@, "_get_#{k}") or cls and cls["_get_#{k}"]
-          dbg "get #{@__name} #{k}"
+          log.dbg "get #{@__name} #{k}"
           @k = getter @
-          dbg "#{@k}"
+          log.dbg "#{@k}"
           @k
         else if cls
           cls[k]
@@ -36,14 +36,14 @@ Packet = subclass Object, {
   bit: (offset, n = 1) =>
     if log.level == 7
       ok, ret = pcall @skb.getbyte, @skb, @off+offset
-      ((ret >> (8-n)) & 1) if ok else error @__name, "bit", ret, "#{@off} #{offset} #{#@skb}"
+      ((ret >> (8-n)) & 1) if ok else log.error @__name, "bit", ret, "#{@off} #{offset} #{#@skb}"
     else
       (@skb\getbyte(@off+offset) >> n) & 1
 
   nibble: (offset, half = 0) =>
     if log.level == 7
       ok, ret = pcall @skb.getbyte, @skb, @off+offset
-      (half == 0 and ret >> 4 or ret & 0xf) if ok else error @__name, "nibble", "#{@off} #{offset} #{#@skb}"
+      (half == 0 and ret >> 4 or ret & 0xf) if ok else log.error @__name, "nibble", "#{@off} #{offset} #{#@skb}"
     else
       b = @skb\getbyte @off+offset
       half == 0 and b >> 4 or b & 0xf
@@ -51,32 +51,32 @@ Packet = subclass Object, {
   byte: (offset) =>
     if log.level == 7
       ok, ret = pcall @skb.getbyte, @skb, @off+offset
-      ret if ok else error @__name, "byte", ret, "#{@off} #{offset} #{#@skb}"
+      ret if ok else log.error @__name, "byte", ret, "#{@off} #{offset} #{#@skb}"
     else
       @skb\getbyte @off+offset
 
   short: (offset) =>
     if log.level == 7
       ok, ret = pcall @skb.getuint16, @skb, @off+offset
-      ntoh16(ret) if ok else error @__name, "short", ret, "#{@off} #{offset} #{#@skb}"
+      ntoh16(ret) if ok else log.error @__name, "short", ret, "#{@off} #{offset} #{#@skb}"
     else
       ntoh16 @skb\getuint16 @off+offset
 
   long: (offset) =>
     if log.level == 7
       ok, ret = pcall @skb.getuint32, @skb, @off+offset
-      ntoh32(ret) if ok else error @__name, "long", ret, "#{@off} #{offset} #{#@skb}"
+      ntoh32(ret) if ok else log.error @__name, "long", ret, "#{@off} #{offset} #{#@skb}"
     else
       ntoh32 @skb\getuint32 @off+offset
 
   str: (offset=0, length=#@skb-@off) =>
     off = @off + offset
     if off + length > #@skb
-      length = @skb - off
-      info"Fragmented packet. Probable incomplete data."
+      length = #@skb - off
+      log.info"Fragmented packet. Probable incomplete data."
     if log.level == 7
       ok, ret = pcall @skb.getstring, @skb, @off+offset, length
-      ret if ok else error @__name, "str", ret, "#{@off} #{offset} #{length} #{#@skb}"
+      ret if ok else log.error @__name, "str", ret, "#{@off} #{offset} #{length} #{#@skb}"
     else
       @skb\getstring @off+offset, length
 

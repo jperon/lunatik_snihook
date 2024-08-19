@@ -3,8 +3,7 @@ concat = table.concat
 local outbox
 outbox = require("mailbox").outbox
 local self = { }
-local set_log
-set_log = function(queue, level, msg)
+self.set_log = function(queue, level, msg)
   if msg == nil then
     msg = ""
   end

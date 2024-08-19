@@ -3,7 +3,7 @@ import outbox from require"mailbox"
 
 @ = {}
 
-set_log = (queue, @level, @msg="") ->
+@set_log = (queue, @level, @msg="") ->
   @log = outbox queue
 
 logger = (lvl, txt) ->

@@ -12,11 +12,7 @@ do
   local _obj_0 = require("linux")
   ntoh16, ntoh32 = _obj_0.ntoh16, _obj_0.ntoh32
 end
-local dbg, error
-do
-  local _obj_0 = require("snihook.log")
-  dbg, error = _obj_0.dbg, _obj_0.error
-end
+local log = require("snihook.log")
 local Object = {
   __name = "Object",
   new = function(self, obj)
@@ -26,9 +22,9 @@ local Object = {
         do
           local getter = rawget(self, "_get_" .. tostring(k)) or cls and cls["_get_" .. tostring(k)]
           if getter then
-            dbg("get " .. tostring(self.__name) .. " " .. tostring(k))
+            log.dbg("get " .. tostring(self.__name) .. " " .. tostring(k))
             self.k = getter(self)
-            dbg(tostring(self.k))
+            log.dbg(tostring(self.k))
             return self.k
           else
             if cls then
@@ -61,7 +57,7 @@ local Packet = subclass(Object, {
       if ok then
         return ((ret >> (8 - n)) & 1)
       else
-        return error(self.__name, "bit", ret, tostring(self.off) .. " " .. tostring(offset) .. " " .. tostring(#self.skb))
+        return log.error(self.__name, "bit", ret, tostring(self.off) .. " " .. tostring(offset) .. " " .. tostring(#self.skb))
       end
     else
       return (self.skb:getbyte(self.off + offset) >> n) & 1
@@ -76,7 +72,7 @@ local Packet = subclass(Object, {
       if ok then
         return (half == 0 and ret >> 4 or ret & 0xf)
       else
-        return error(self.__name, "nibble", tostring(self.off) .. " " .. tostring(offset) .. " " .. tostring(#self.skb))
+        return log.error(self.__name, "nibble", tostring(self.off) .. " " .. tostring(offset) .. " " .. tostring(#self.skb))
       end
     else
       local b = self.skb:getbyte(self.off + offset)
@@ -89,7 +85,7 @@ local Packet = subclass(Object, {
       if ok then
         return ret
       else
-        return error(self.__name, "byte", ret, tostring(self.off) .. " " .. tostring(offset) .. " " .. tostring(#self.skb))
+        return log.error(self.__name, "byte", ret, tostring(self.off) .. " " .. tostring(offset) .. " " .. tostring(#self.skb))
       end
     else
       return self.skb:getbyte(self.off + offset)
@@ -101,7 +97,7 @@ local Packet = subclass(Object, {
       if ok then
         return ntoh16(ret)
       else
-        return error(self.__name, "short", ret, tostring(self.off) .. " " .. tostring(offset) .. " " .. tostring(#self.skb))
+        return log.error(self.__name, "short", ret, tostring(self.off) .. " " .. tostring(offset) .. " " .. tostring(#self.skb))
       end
     else
       return ntoh16(self.skb:getuint16(self.off + offset))
@@ -113,7 +109,7 @@ local Packet = subclass(Object, {
       if ok then
         return ntoh32(ret)
       else
-        return error(self.__name, "long", ret, tostring(self.off) .. " " .. tostring(offset) .. " " .. tostring(#self.skb))
+        return log.error(self.__name, "long", ret, tostring(self.off) .. " " .. tostring(offset) .. " " .. tostring(#self.skb))
       end
     else
       return ntoh32(self.skb:getuint32(self.off + offset))
@@ -128,15 +124,15 @@ local Packet = subclass(Object, {
     end
     local off = self.off + offset
     if off + length > #self.skb then
-      length = self.skb - off
-      info("Fragmented packet. Probable incomplete data.")
+      length = #self.skb - off
+      log.info("Fragmented packet. Probable incomplete data.")
     end
     if log.level == 7 then
       local ok, ret = pcall(self.skb.getstring, self.skb, self.off + offset, length)
       if ok then
         return ret
       else
-        return error(self.__name, "str", ret, tostring(self.off) .. " " .. tostring(offset) .. " " .. tostring(length) .. " " .. tostring(#self.skb))
+        return log.error(self.__name, "str", ret, tostring(self.off) .. " " .. tostring(offset) .. " " .. tostring(length) .. " " .. tostring(#self.skb))
       end
     else
       return self.skb:getstring(self.off + offset, length)
