@@ -10,7 +10,8 @@ all:
 
 install:
 	mkdir ${LUA_MODULE_DIR}/${NAME} || true
-	cp *.lua ${LUA_MODULE_DIR}/${NAME}
+	cp [^c]*.lua ${LUA_MODULE_DIR}/${NAME}
+	cp -n config.lua ${LUA_MODULE_DIR}/${NAME}
 
 uninstall:
 	rm -rf ${LUA_MODULE_DIR}/${NAME}

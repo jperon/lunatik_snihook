@@ -1,38 +1,27 @@
-import concat from table
+:concat = table
 
-import inbox from require"mailbox"
-
-nf = require"netfilter"
-import BRIDGE from nf.family
-import FORWARD from nf.bridge_hooks
-import FILTER_BRIDGED from nf.bridge_priority
-import CONTINUE, DROP from nf.action
-DROP = CONTINUE  -- Enable to debug without blocking traffic
-log = require"snihook.log"
-ipparse = require"snihook.ipparse"
-
+:inbox = require"mailbox"
+:register, family: {:BRIDGE}, bridge_hooks: {:FORWARD}, bridge_priority: {:FILTER_BRIDGED}, action: {:CONTINUE, :DROP} = require"netfilter"
+DROP = require"snihook.config".activate and DROP or CONTINUE
+:set_log, :notice, :info = require"snihook.log"
+:auto_ip, IP: {protocols: {TCP: tcp_proto}}, :TCP, :TLS, :TLSHandshake, :TLSExtension = require"snihook.ipparse"
+:handshake = TLS.types
+:hello = TLSHandshake.types
+:server_name = TLSExtension.types
 
 whitelist = {}
-
 
 get_first = (fn) =>  -- Returns first value of an iterator that matches the condition defined in function fn.
   for v in @
     return v if fn v
 
 
-(queue) =>
-  msg = inbox @
-  log = log queue, 6, "snihook"
-  import notice, info from log
-  ipparse = ipparse log
-  import auto_ip, IP, TCP, TLS, TLSHandshake, TLSExtension from ipparse
-  tcp_proto = IP.protocols.TCP
-  import handshake from TLS.types
-  import hello from TLSHandshake.types
-  import server_name from TLSExtension.types
+(dev_queue, log_queue) ->
+  dev = inbox dev_queue
+  set_log log_queue, 6, "snihook"
 
-  hook = =>
-    if changes = msg\receive!
+  register pf: BRIDGE, hooknum: FORWARD, priority: FILTER_BRIDGED, hook: =>
+    if changes = dev\receive!
       for action, domain in changes\gmatch"(%S+)%s(%S+)"
         if action == "add"
           whitelist[domain] = true
@@ -41,16 +30,16 @@ get_first = (fn) =>  -- Returns first value of an iterator that matches the cond
 
     ip = auto_ip @
     return CONTINUE if not ip or ip\is_empty! or ip.protocol ~= tcp_proto
-    
+
     tcp = TCP ip.data
     return CONTINUE if tcp\is_empty! or tcp.dport ~= 443
-    
+
     tls = TLS tcp.data
     return CONTINUE if tls\is_empty! or tls.type ~= handshake
-    
+
     hshake = TLSHandshake tls.data
     return CONTINUE if hshake\is_empty! or hshake.type ~= hello
-    
+
     if sni = get_first hshake\iter_extensions!, => @type == server_name
       sni = sni.server_name
       if whitelist[sni]
@@ -63,5 +52,3 @@ get_first = (fn) =>  -- Returns first value of an iterator that matches the cond
       return DROP, notice"#{ip.src} -> #{sni} BLOCKED."
 
     CONTINUE
-
-  nf.register :hook, pf: BRIDGE, hooknum: FORWARD, priority: FILTER_BRIDGED

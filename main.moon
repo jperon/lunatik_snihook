@@ -5,11 +5,11 @@
 
 -- Assuming that MoonScript files are transpiled into in /lib/modules/lua/snihook/*.lua,
 --
--- > sudo lunatik run snihook/main
+-- > sudo lunatik spawn snihook/main
 
 -- To disable it:
 --
--- > sudo lunatik stop snihook/main; sudo lunatik stop snihook/logger; sudo lunatik stop snihook/hook
+-- > sudo lunatik stop snihook/main
 
 -- Once enabled, to add entries to whitelist:
 -- > echo add DOMAIN > /dev/sni_whitelist
@@ -17,42 +17,39 @@
 -- > echo del DOMAIN > /dev/sni_whitelist
 
 
-hook   = "snihook/hook"    -- script that will register nftable hook(s)
-logger = "snihook/logger"  -- script that will handle logging
-name   = "sni_whitelist"   -- name of the device file (in /dev)
-
-import runtime, runtimes from require"lunatik"
-require"rcu"  -- required for runtime
-import run from require"thread"
-import outbox from require"mailbox"
-
-device = require"device"
-linux = require"linux"
-import IRUSR, IWUSR from linux.stat
-IRWUSR = IRUSR | IWUSR
-
-
-msg = outbox 100 * 1024
-log = outbox 100 * 1024
-
-
-rt = runtimes!
-for script in *{hook, logger}
-  assert not rt[script], "Please stop #{script} before starting this script."
-l = runtime logger
-r = runtime hook, false
-run l, logger, log.queue
-run r, hook, msg.queue, log.queue
-rt[logger] = l
-rt[hook] = r
-
-nop = ->  -- Do nothing
-
-
-device.new{
-  :name, mode: IRWUSR
-  open: nop, release: nop, read: nop
-  write: (s) =>
-    log\send s if s == "STOP\n"
-    msg\send s
+runtimes = {
+  {"snihook/dev", true}      -- script that will handle /dev/sni_whitelist
+  {"snihook/hook", false}    -- script that will register nftable hook(s)
 }
+
+
+:remove = table
+
+:runtime = require"rcu" and require"lunatik"
+:run, :shouldstop = require"thread"
+:inbox = require"mailbox"
+:schedule, :time = require"linux"
+
+
+->
+  dev_hook = inbox 100 * 1024
+  log = inbox 100 * 1024
+
+  for i, {path, sleep} in ipairs runtimes
+    rt = runtime path, sleep
+    run rt, path, dev_hook.queue, log.queue
+    runtimes[i] = rt
+
+  previous = __mode: "kv"
+  while not shouldstop!
+    if event = log\receive!
+      t = time! / 1000000000
+      if _t = previous[event]
+        previous[event] = nil if t - _t >= 10
+      else
+        print event
+        previous[event] = t
+    else
+      schedule 1000
+
+  rt\stop! for rt in *runtimes

@@ -1,53 +1,65 @@
-local hook = "snihook/hook"
-local logger = "snihook/logger"
-local name = "sni_whitelist"
-local runtime, runtimes
-do
-  local _obj_0 = require("lunatik")
-  runtime, runtimes = _obj_0.runtime, _obj_0.runtimes
-end
-require("rcu")
-local run
-run = require("thread").run
-local outbox
-outbox = require("mailbox").outbox
-local device = require("device")
-local linux = require("linux")
-local IRUSR, IWUSR
-do
-  local _obj_0 = linux.stat
-  IRUSR, IWUSR = _obj_0.IRUSR, _obj_0.IWUSR
-end
-local IRWUSR = IRUSR | IWUSR
-local msg = outbox(100 * 1024)
-local log = outbox(100 * 1024)
-local rt = runtimes()
-local _list_0 = {
-  hook,
-  logger
+local runtimes = {
+  {
+    "snihook/dev",
+    true
+  },
+  {
+    "snihook/hook",
+    false
+  }
 }
-for _index_0 = 1, #_list_0 do
-  local script = _list_0[_index_0]
-  assert(not rt[script], "Please stop " .. tostring(script) .. " before starting this script.")
+local remove
+remove = table.remove
+local runtime
+runtime = (require("rcu") and require("lunatik")).runtime
+local run, shouldstop
+do
+  local _obj_0 = require("thread")
+  run, shouldstop = _obj_0.run, _obj_0.shouldstop
 end
-local l = runtime(logger)
-local r = runtime(hook, false)
-run(l, logger, log.queue)
-run(r, hook, msg.queue, log.queue)
-rt[logger] = l
-rt[hook] = r
-local nop
-nop = function() end
-return device.new({
-  name = name,
-  mode = IRWUSR,
-  open = nop,
-  release = nop,
-  read = nop,
-  write = function(self, s)
-    if s == "STOP\n" then
-      log:send(s)
-    end
-    return msg:send(s)
+local inbox
+inbox = require("mailbox").inbox
+local schedule, time
+do
+  local _obj_0 = require("linux")
+  schedule, time = _obj_0.schedule, _obj_0.time
+end
+return function()
+  local dev_hook = inbox(100 * 1024)
+  local log = inbox(100 * 1024)
+  for i, _des_0 in ipairs(runtimes) do
+    local path, sleep
+    path, sleep = _des_0[1], _des_0[2]
+    local rt = runtime(path, sleep)
+    run(rt, path, dev_hook.queue, log.queue)
+    runtimes[i] = rt
   end
-})
+  local previous = {
+    __mode = "kv"
+  }
+  while not shouldstop() do
+    do
+      local event = log:receive()
+      if event then
+        local t = time() / 1000000000
+        do
+          local _t = previous[event]
+          if _t then
+            if t - _t >= 10 then
+              previous[event] = nil
+            end
+          else
+            print(event)
+            previous[event] = t
+          end
+        end
+      else
+        schedule(1000)
+      end
+    end
+  end
+  for _index_0 = 1, #runtimes do
+    local rt = runtimes[_index_0]
+    rt:stop()
+  end
+end
