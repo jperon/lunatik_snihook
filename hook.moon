@@ -1,10 +1,10 @@
 :concat = table
 
 :inbox = require"mailbox"
-:register, family: {:BRIDGE}, bridge_hooks: {:FORWARD}, bridge_priority: {:FILTER_BRIDGED}, action: {:CONTINUE, :DROP} = require"netfilter"
+:register, family: {BRIDGE: pf}, bridge_hooks: {FORWARD: hooknum}, bridge_priority: {FILTER_BRIDGED: priority}, action: {:CONTINUE, :DROP} = require"netfilter"
 DROP = require"snihook.config".activate and DROP or CONTINUE
-:set_log, :notice, :info = require"snihook.log"
-:auto_ip, IP: {protocols: {TCP: tcp_proto}}, :TCP, :TLS, :TLSHandshake, :TLSExtension = require"snihook.ipparse"
+:set_log, :notice, :info, :dbg = require"snihook.log"
+:auto_ip, IP: {protocols: {TCP: tcp_proto}}, :Fragmented_IP4, :TCP, :TLS, :TLSHandshake, :TLSExtension = require"snihook.ipparse"
 :handshake = TLS.types
 :hello = TLSHandshake.types
 :server_name = TLSExtension.types
@@ -15,12 +15,17 @@ get_first = (fn) =>  -- Returns first value of an iterator that matches the cond
   for v in @
     return v if fn v
 
+fragmented_ips = setmetatable {},  __mode: "kv", __index: (id) =>
+  @[id] = Fragmented_IP4!
+  dbg id, @[id]
+  @[id]
+
 
 (dev_queue, log_queue) ->
   dev = inbox dev_queue
   set_log log_queue, 6, "snihook"
 
-  register pf: BRIDGE, hooknum: FORWARD, priority: FILTER_BRIDGED, hook: =>
+  register :pf, :hooknum, :priority, hook: =>
     if changes = dev\receive!
       for action, domain in changes\gmatch"(%S+)%s(%S+)"
         if action == "add"
@@ -29,7 +34,15 @@ get_first = (fn) =>  -- Returns first value of an iterator that matches the cond
           whitelist[domain] = nil
 
     ip = auto_ip @
-    return CONTINUE if not ip or ip\is_empty! or ip.protocol ~= tcp_proto
+    return CONTINUE if not ip or ip\is_empty!
+    if ip\is_fragment!
+      dbg"Fragment detected"
+      f_ip = fragmented_ips[ip.id]\insert(ip)
+      return CONTINUE unless f_ip\is_complete!
+      dbg"Last fragment received"
+      ip = f_ip
+      fragmented_ips[ip.id] = nil
+    return CONTINUE if ip.protocol ~= tcp_proto
 
     tcp = TCP ip.data
     return CONTINUE if tcp\is_empty! or tcp.dport ~= 443
@@ -52,3 +65,4 @@ get_first = (fn) =>  -- Returns first value of an iterator that matches the cond
       return DROP, notice"#{ip.src} -> #{sni} BLOCKED."
 
     CONTINUE
+

@@ -2,21 +2,21 @@ local concat
 concat = table.concat
 local inbox
 inbox = require("mailbox").inbox
-local register, BRIDGE, FORWARD, FILTER_BRIDGED, CONTINUE, DROP
+local register, pf, hooknum, priority, CONTINUE, DROP
 do
   local _obj_0 = require("netfilter")
-  register, BRIDGE, FORWARD, FILTER_BRIDGED, CONTINUE, DROP = _obj_0.register, _obj_0.family.BRIDGE, _obj_0.bridge_hooks.FORWARD, _obj_0.bridge_priority.FILTER_BRIDGED, _obj_0.action.CONTINUE, _obj_0.action.DROP
+  register, pf, hooknum, priority, CONTINUE, DROP = _obj_0.register, _obj_0.family.BRIDGE, _obj_0.bridge_hooks.FORWARD, _obj_0.bridge_priority.FILTER_BRIDGED, _obj_0.action.CONTINUE, _obj_0.action.DROP
 end
 DROP = require("snihook.config").activate and DROP or CONTINUE
-local set_log, notice, info
+local set_log, notice, info, dbg
 do
   local _obj_0 = require("snihook.log")
-  set_log, notice, info = _obj_0.set_log, _obj_0.notice, _obj_0.info
+  set_log, notice, info, dbg = _obj_0.set_log, _obj_0.notice, _obj_0.info, _obj_0.dbg
 end
-local auto_ip, tcp_proto, TCP, TLS, TLSHandshake, TLSExtension
+local auto_ip, tcp_proto, Fragmented_IP4, TCP, TLS, TLSHandshake, TLSExtension
 do
   local _obj_0 = require("snihook.ipparse")
-  auto_ip, tcp_proto, TCP, TLS, TLSHandshake, TLSExtension = _obj_0.auto_ip, _obj_0.IP.protocols.TCP, _obj_0.TCP, _obj_0.TLS, _obj_0.TLSHandshake, _obj_0.TLSExtension
+  auto_ip, tcp_proto, Fragmented_IP4, TCP, TLS, TLSHandshake, TLSExtension = _obj_0.auto_ip, _obj_0.IP.protocols.TCP, _obj_0.Fragmented_IP4, _obj_0.TCP, _obj_0.TLS, _obj_0.TLSHandshake, _obj_0.TLSExtension
 end
 local handshake
 handshake = TLS.types.handshake
@@ -33,13 +33,21 @@ get_first = function(self, fn)
     end
   end
 end
+local fragmented_ips = setmetatable({ }, {
+  __mode = "kv",
+  __index = function(self, id)
+    self[id] = Fragmented_IP4()
+    dbg(id, self[id])
+    return self[id]
+  end
+})
 return function(dev_queue, log_queue)
   local dev = inbox(dev_queue)
   set_log(log_queue, 6, "snihook")
   return register({
-    pf = BRIDGE,
-    hooknum = FORWARD,
-    priority = FILTER_BRIDGED,
+    pf = pf,
+    hooknum = hooknum,
+    priority = priority,
     hook = function(self)
       do
         local changes = dev:receive()
@@ -54,7 +62,20 @@ return function(dev_queue, log_queue)
         end
       end
       local ip = auto_ip(self)
-      if not ip or ip:is_empty() or ip.protocol ~= tcp_proto then
+      if not ip or ip:is_empty() then
+        return CONTINUE
+      end
+      if ip:is_fragment() then
+        dbg("Fragment detected")
+        local f_ip = fragmented_ips[ip.id]:insert(ip)
+        if not (f_ip:is_complete()) then
+          return CONTINUE
+        end
+        dbg("Last fragment received")
+        ip = f_ip
+        fragmented_ips[ip.id] = nil
+      end
+      if ip.protocol ~= tcp_proto then
         return CONTINUE
       end
       local tcp = TCP(ip.data)

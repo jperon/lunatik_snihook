@@ -17,15 +17,13 @@
 -- > echo del DOMAIN > /dev/sni_whitelist
 
 
-runtimes = {
+_runtimes = {
   {"snihook/dev", true}      -- script that will handle /dev/sni_whitelist
   {"snihook/hook", false}    -- script that will register nftable hook(s)
 }
 
 
-:remove = table
-
-:runtime = require"rcu" and require"lunatik"
+:runtime, :runtimes = require"rcu" and require"lunatik"
 :run, :shouldstop = require"thread"
 :inbox = require"mailbox"
 :schedule, :time = require"linux"
@@ -35,10 +33,13 @@ runtimes = {
   dev_hook = inbox 100 * 1024
   log = inbox 100 * 1024
 
-  for i, {path, sleep} in ipairs runtimes
+  runtimes = runtimes!
+  for r in *_runtimes
+    {path, sleep} = r
     rt = runtime path, sleep
     run rt, path, dev_hook.queue, log.queue
-    runtimes[i] = rt
+    r[3] = rt
+    runtimes[path] = rt
 
   previous = __mode: "kv"
   while not shouldstop!
@@ -52,4 +53,6 @@ runtimes = {
     else
       schedule 1000
 
-  rt\stop! for rt in *runtimes
+  for {path, _, rt} in *_runtimes
+    rt\stop!
+    runtimes[path] = nil

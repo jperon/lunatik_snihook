@@ -1,4 +1,4 @@
-local runtimes = {
+local _runtimes = {
   {
     "snihook/dev",
     true
@@ -8,10 +8,11 @@ local runtimes = {
     false
   }
 }
-local remove
-remove = table.remove
-local runtime
-runtime = (require("rcu") and require("lunatik")).runtime
+local runtime, runtimes
+do
+  local _obj_0 = require("rcu") and require("lunatik")
+  runtime, runtimes = _obj_0.runtime, _obj_0.runtimes
+end
 local run, shouldstop
 do
   local _obj_0 = require("thread")
@@ -27,12 +28,15 @@ end
 return function()
   local dev_hook = inbox(100 * 1024)
   local log = inbox(100 * 1024)
-  for i, _des_0 in ipairs(runtimes) do
+  runtimes = runtimes()
+  for _index_0 = 1, #_runtimes do
+    local r = _runtimes[_index_0]
     local path, sleep
-    path, sleep = _des_0[1], _des_0[2]
+    path, sleep = r[1], r[2]
     local rt = runtime(path, sleep)
     run(rt, path, dev_hook.queue, log.queue)
-    runtimes[i] = rt
+    r[3] = rt
+    runtimes[path] = rt
   end
   local previous = {
     __mode = "kv"
@@ -58,8 +62,11 @@ return function()
       end
     end
   end
-  for _index_0 = 1, #runtimes do
-    local rt = runtimes[_index_0]
+  for _index_0 = 1, #_runtimes do
+    local _des_0 = _runtimes[_index_0]
+    local path, _, rt
+    path, _, rt = _des_0[1], _des_0[2], _des_0[3]
     rt:stop()
+    runtimes[path] = nil
   end
 end

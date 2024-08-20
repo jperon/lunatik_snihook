@@ -1,5 +1,8 @@
-local concat
-concat = table.concat
+local concat, insert
+do
+  local _obj_0 = table
+  concat, insert = _obj_0.concat, _obj_0.insert
+end
 local min
 min = math.min
 local wrap, yield
@@ -13,6 +16,8 @@ do
   ntoh16, ntoh32 = _obj_0.ntoh16, _obj_0.ntoh32
 end
 local log = require("snihook.log")
+local data_new
+data_new = require("data").new
 local Object = {
   __name = "Object",
   new = function(self, obj)
@@ -22,14 +27,10 @@ local Object = {
         do
           local getter = rawget(self, "_get_" .. tostring(k)) or cls and cls["_get_" .. tostring(k)]
           if getter then
-            log.dbg("get " .. tostring(self.__name) .. " " .. tostring(k))
-            self.k = getter(self)
-            log.dbg(tostring(self.k))
-            return self.k
-          else
-            if cls then
-              return cls[k]
-            end
+            self[k] = getter(self)
+            return self[k]
+          elseif cls then
+            return cls[k]
           end
         end
       end,
@@ -65,18 +66,18 @@ local Packet = subclass(Object, {
   end,
   nibble = function(self, offset, half)
     if half == nil then
-      half = 0
+      half = 1
     end
     if log.level == 7 then
       local ok, ret = pcall(self.skb.getbyte, self.skb, self.off + offset)
       if ok then
-        return (half == 0 and ret >> 4 or ret & 0xf)
+        return (half == 1 and ret >> 4 or ret & 0xf)
       else
         return log.error(self.__name, "nibble", tostring(self.off) .. " " .. tostring(offset) .. " " .. tostring(#self.skb))
       end
     else
       local b = self.skb:getbyte(self.off + offset)
-      return half == 0 and b >> 4 or b & 0xf
+      return half == 1 and b >> 4 or b & 0xf
     end
   end,
   byte = function(self, offset)
@@ -123,19 +124,20 @@ local Packet = subclass(Object, {
       length = #self.skb - self.off
     end
     local off = self.off + offset
+    local frag = ""
     if off + length > #self.skb then
       length = #self.skb - off
-      log.info("Fragmented packet. Probable incomplete data.")
+      log.warn("Incomplete data. Fragmented packet?.")
     end
     if log.level == 7 then
       local ok, ret = pcall(self.skb.getstring, self.skb, self.off + offset, length)
       if ok then
-        return ret
+        return (ret .. frag)
       else
         return log.error(self.__name, "str", ret, tostring(self.off) .. " " .. tostring(offset) .. " " .. tostring(length) .. " " .. tostring(#self.skb))
       end
     else
-      return self.skb:getstring(self.off + offset, length)
+      return self.skb:getstring(self.off + offset, length) .. frag
     end
   end,
   is_empty = function(self)
@@ -175,11 +177,41 @@ local IP4 = subclass(IP, {
       return _accum_0
     end)(), ".")
   end,
+  is_fragment = function(self)
+    return self.mf ~= 0 or self.fragmentation_off ~= 0
+  end,
+  _get_ihl = function(self)
+    return self:nibble(0, 2)
+  end,
+  _get_tos = function(self)
+    return self:byte(1)
+  end,
   _get_length = function(self)
     return self:short(2)
   end,
+  _get_id = function(self)
+    return self:short(4)
+  end,
+  _get_reserved = function(self)
+    return self:bit(6, 1)
+  end,
+  _get_df = function(self)
+    return self:bit(6, 2)
+  end,
+  _get_mf = function(self)
+    return self:bit(6, 3)
+  end,
+  _get_fragmentation_off = function(self)
+    return (self:bit(6, 4) << 12) | (self:nibble(6, 2) << 8) | self:byte(7)
+  end,
+  _get_ttl = function(self)
+    return self:byte(8)
+  end,
   _get_protocol = function(self)
     return self:byte(9)
+  end,
+  _get_header_checksum = function(self)
+    return self:short(10)
   end,
   _get_src = function(self)
     return self:get_ip_at(12)
@@ -188,7 +220,10 @@ local IP4 = subclass(IP, {
     return self:get_ip_at(16)
   end,
   _get_data_off = function(self)
-    return 4 * self:nibble(0, 1)
+    return 4 * self.ihl
+  end,
+  _get_data_len = function(self)
+    return self.length - self.data_off
   end
 })
 local IP6 = subclass(IP, {
@@ -203,6 +238,9 @@ local IP6 = subclass(IP, {
       end
       return _accum_0
     end)(), ":")
+  end,
+  is_fragment = function(self)
+    return false
   end,
   _get_length = function(self)
     return self.data_off + self:short(4)
@@ -221,6 +259,73 @@ local IP6 = subclass(IP, {
   end,
   _get_data_off = function(self)
     return 40
+  end
+})
+local Fragmented_IP4 = subclass(IP4, {
+  new = function(self, obj)
+    if obj == nil then
+      obj = { }
+    end
+    obj.off = obj.off or 0
+    return Object.new(self, obj)
+  end,
+  insert = function(self, fragment)
+    do
+      local prec = self[1]
+      if prec then
+        assert(fragment.id == prec.id)
+        for i = 1, #self do
+          if fragment.fragmentation_off < self[i].fragmentation_off then
+            insert(self, i, fragment)
+            return self
+          end
+        end
+        self[#self + 1] = fragment
+        return self
+      end
+    end
+    self[1] = fragment
+    return self
+  end,
+  is_complete = function(self)
+    if self[#self].mf ~= 0 then
+      return false
+    end
+    for i = 2, #self do
+      local this, prec = self[i], self[i - 1]
+      if (this.fragmentation_off << 3) ~= (prec.fragmentation_off << 3) + prec.data_len then
+        return false
+      end
+    end
+    return true
+  end,
+  _get_skb = function(self)
+    assert(self:is_complete(), "Can't access payload of incomplete fragmented packet")
+    local fragmentation_off, data_len
+    do
+      local _obj_0 = self[#self]
+      fragmentation_off, data_len = _obj_0.fragmentation_off, _obj_0.data_len
+    end
+    local skb = data_new((fragmentation_off << 3) + data_len)
+    local off = 0
+    local _skb
+    _skb = self[1].skb
+    for j = 0, #_skb - 1 do
+      skb:setbyte(off, _skb:getbyte(j))
+      off = off + 1
+    end
+    for i = 2, #self do
+      local data_off
+      do
+        local _obj_0 = self[i]
+        _skb, data_off = _obj_0.skb, _obj_0.data_off
+      end
+      for j = 0, #_skb - 1 do
+        skb:setbyte(off, _skb:getbyte(data_off + j))
+        off = off + 1
+      end
+    end
+    return skb
   end
 })
 local auto_ip
@@ -421,6 +526,7 @@ return {
   Packet = Packet,
   IP = IP,
   IP4 = IP4,
+  Fragmented_IP4 = Fragmented_IP4,
   IP6 = IP6,
   auto_ip = auto_ip,
   TCP = TCP,
