@@ -7,7 +7,12 @@ do
   local _obj_0 = require("netfilter")
   register, pf, hooknum, priority, CONTINUE, DROP = _obj_0.register, _obj_0.family.BRIDGE, _obj_0.bridge_hooks.FORWARD, _obj_0.bridge_priority.FILTER_BRIDGED, _obj_0.action.CONTINUE, _obj_0.action.DROP
 end
-DROP = require("snihook.config").activate and DROP or CONTINUE
+local activate, log_level
+do
+  local _obj_0 = require("snihook.config")
+  activate, log_level = _obj_0.activate, _obj_0.log_level
+end
+DROP = activate and DROP or CONTINUE
 local set_log, notice, info, dbg
 do
   local _obj_0 = require("snihook.log")
@@ -43,7 +48,7 @@ local fragmented_ips = setmetatable({ }, {
 })
 return function(dev_queue, log_queue)
   local dev = inbox(dev_queue)
-  set_log(log_queue, 6, "snihook")
+  set_log(log_queue, log_level, "snihook")
   return register({
     pf = pf,
     hooknum = hooknum,

@@ -2,7 +2,8 @@
 
 :inbox = require"mailbox"
 :register, family: {BRIDGE: pf}, bridge_hooks: {FORWARD: hooknum}, bridge_priority: {FILTER_BRIDGED: priority}, action: {:CONTINUE, :DROP} = require"netfilter"
-DROP = require"snihook.config".activate and DROP or CONTINUE
+:activate, :log_level = require"snihook.config"
+DROP = activate and DROP or CONTINUE
 :set_log, :notice, :info, :dbg = require"snihook.log"
 :auto_ip, IP: {protocols: {TCP: tcp_proto}}, :Fragmented_IP4, :TCP, :TLS, :TLSHandshake, :TLSExtension = require"snihook.ipparse"
 :handshake = TLS.types
@@ -23,7 +24,7 @@ fragmented_ips = setmetatable {},  __mode: "kv", __index: (id) =>
 
 (dev_queue, log_queue) ->
   dev = inbox dev_queue
-  set_log log_queue, 6, "snihook"
+  set_log log_queue, log_level, "snihook"
 
   register :pf, :hooknum, :priority, hook: =>
     if changes = dev\receive!

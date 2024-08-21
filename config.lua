@@ -1,3 +1,4 @@
 return {
-  activate = false
+  activate = false,
+  log_level = "NOTICE"
 }
