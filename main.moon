@@ -36,6 +36,7 @@ _runtimes = {
   runtimes = runtimes!
   for r in *_runtimes
     {path, sleep} = r
+    assert not runtimes[path], "Please stop #{path} before launching this script."
     rt = runtime path, sleep
     run rt, path, dev_hook.queue, log.queue
     r[3] = rt

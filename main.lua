@@ -33,6 +33,7 @@ return function()
     local r = _runtimes[_index_0]
     local path, sleep
     path, sleep = r[1], r[2]
+    assert(not runtimes[path], "Please stop " .. tostring(path) .. " before launching this script.")
     local rt = runtime(path, sleep)
     run(rt, path, dev_hook.queue, log.queue)
     r[3] = rt
