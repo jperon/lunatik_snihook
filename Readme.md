@@ -1,3 +1,6 @@
+# All further development happens [there](https://github.com/luainkernel/snihook)
+
+
 # Snihook
 
 Snihook is a kernel script that uses the lunatik netfilter library to filter TLS packets.
